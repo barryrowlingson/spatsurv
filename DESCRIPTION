@@ -1,39 +1,25 @@
 Package: spatsurv
 Type: Package
-Title: Bayesian spatial survival analysis with parametric proportional hazards
-    models.
-Version: 0.9
-Date: 2013-12-12
+Title: Bayesian Spatial Survival Analysis with Parametric Proportional Hazards
+    Models
+Version: 0.9-12
+Date: 2015-11-02
 Author: Benjamin M. Taylor and Barry S. Rowlingson
 Maintainer: Benjamin M. Taylor <b.taylor1@lancaster.ac.uk>
-Description: Survival analysis with parametric proportional hazards models where
-    the events have been geo-located.
+Description: Bayesian inference for parametric proportional hazards spatial survival models; flexible spatial survival models.
 License: GPL-3
-Depends:
-    survival,
-    flexsurv,
-    sp,
-    tcltk
 Imports:
+    survival,
+    sp,
+    spatstat,
+    raster,
     iterators,
     RandomFields,
     fields,
-    Matrix
+    Matrix,
+    stringr,
+    rgeos,
+    methods
 Suggests:
     rgdal,
     gpclib
-Collate:
-    'calibratemcmc.R'
-    'exponential.R'
-    'likelihoodsPosteriorsPriors.R'
-    'mcmcIterator.R'
-    'mcmcPriors.R'
-    'mcmcProgress.R'
-    'spatsurv.R'
-    'spatsurvMisc.R'
-    'surv3d.R'
-    'survexpon.R'
-    'survsim.R'
-    'survspat.R'
-    'txtProgressBar2.R'
-    'weibull.R'

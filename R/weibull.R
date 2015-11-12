@@ -1,149 +1,125 @@
-##' proposalvariance.weibull function
+##' weibullHaz function
 ##'
-##' A function to compute an approximate proposal variance for the MALA algorithm for a parametric proportional hazards model with baseline hazard
-##' derived from the Weibull distribution.
+##' A function to define a parametric proportional hazards model where the baseline hazard is taken from the Weibull model. 
+##' This function returns an object inheriting class 'basehazardspec', list of functions 'distinfo', 'basehazard', 'gradbasehazard', 'hessbasehazard',
+##' 'cumbasehazard', 'gradcumbasehazard', 'hesscumbasehazard' and 'densityquantile'
+##' 
+##' The \code{distinfo} function is used to provide basic distribution specific information to other \code{spatsurv} functions. The user is required 
+##' to provide the following information in the returned list: \code{npars}, the number of parameters in this distribution; \code{parnames}, 
+##' the names of the parameters; \code{trans}, the transformation scale on which the priors will be provided; \code{itrans}, the inverse 
+##' transformation function that will be applied to the parameters before the hazard, and other functions are evaluated; \code{jacobian}, 
+##' the derivative of the inverse transformation function with respect to each of the parameters; and \code{hessian}, the second derivatives 
+##' of the inverse transformation function with respect to each of the parameters -- note that currently the package \code{spatsurv} 
+##' only allows the use of functions where the parameters are transformed independently.
+##' 
+##' The \code{basehazard} function is used to evaluate the baseline hazard function for the distribution of interest. It returns a 
+##' function that accepts as input a vector of times, \code{t} and returns a vector.
+##' 
+##' The \code{gradbasehazard} function is used to evaluate the gradient of the baseline hazard function with respect to the parameters, 
+##' this typically returns a vector. It returns a function that accepts as input a vector of times, \code{t}, and returns a matrix.
+##' 
+##' The \code{hessbasehazard} function is used to evaluate the Hessian of the baseline hazard function. It returns a function that accepts 
+##' as input a vector of times, \code{t} and returns a list of hessian matrices corresponding to each \code{t}.
+##' 
+##' The \code{cumbasehazard} function is used to evaluate the cumulative baseline hazard function for the distribution of interest. 
+##' It returns a function that accepts as input a vector of times, \code{t} and returns a vector.
+##' 
+##' The \code{gradcumbasehazard} function is used to evaluate the gradient of the cumulative baseline hazard function with respect 
+##' to the parameters, this typically returns a vector. It returns a function that accepts as input a vector of times, \code{t}, and returns a matrix.
+##' 
+##' The \code{hesscumbasehazard} function is used to evaluate the Hessian of the cumulative baseline hazard function. It returns a 
+##' function that accepts as input a vector of times, \code{t} and returns a list of hessian matrices corresponding to each \code{t}.
+##' 
+##' The \code{densityquantile} function is used to return quantiles of the density function. This is NOT REQUIRED for running the MCMC, 
+##' merely for us in post-processing with the \code{predict} function where \code{type} is 'densityquantile'. In the case of the Weibull 
+##' model for the baseline hazard, it can be shown that the q-th quantile is: 
 ##'
-##' @param X design matrix 
-##' @param delta censoring indicator 
-##' @param tm observed times
-##' @param betahat estimate of model parameter beta 
-##' @param omegahat estimate of model parameter omega
-##' @param Yhat estimate of the latent field  
-##' @param priors the priors, an object of class 'mcmcPriors', see ?mcmcPriors
-##' @param covmodel an object of class 'covmodel', see ?covmodel
-##' @param u vector of distances between points 
-##' @return estimates of eta, gamma and a proposal variance matrixc for use in the MALA algorithm
+##' @return an object inheriting class 'basehazardspec'
+##' @seealso \link{tpowHaz}, \link{exponentialHaz}, \link{gompertzHaz}, \link{makehamHaz}
 ##' @export
 
-proposalvariance.weibull <- function(X,delta,tm,betahat,omegahat,Yhat,priors,covmodel,u){
+weibullHaz <- function(){
+
+    flist <- list()
+
+    flist$distinfo <- function(){
+        retlist <- list()
+        retlist$npars <- 2
+        retlist$parnames <- c("alpha","lambda")
+        retlist$trans <- log
+        retlist$itrans <- exp
+        retlist$jacobian <- exp
+        retlist$hessian <- list(exp,exp)
+        return(retlist)
+    }
     
-    n <- length(tm)
-    lenbeta <- length(betahat)
-    lenomega <- length(omegahat)
-    leneta <- 2
-    lenY <- length(Yhat)
-    npars <- lenbeta + lenomega + leneta + lenY
+    flist$basehazard <- function(pars){
+        fun <- function(t,...){
+            return(pars[2]*pars[1]*t^(pars[1]-1)) # in this case alpha=pars[1], lambda=pars[2] 
+        }
+        return(fun)  
+    }
     
-    sigma <- matrix(0,npars,npars)
-    
-    # eta
-    logpost <- function(eta,tm,delta,X,beta,omega,Y,priors,covmodel,u){
-        sigmainv <- solve(matrix(getcov(u=u,sigma=exp(eta[1]),phi=exp(eta[2]),model=covmodel$model,pars=covmodel$pars),n,n))
-        cholsigmainv <- t(chol(sigmainv))
-        gamma <- cholsigmainv%*%(Y+exp(eta[1])^2/2)                    
+    flist$gradbasehazard <- function(pars){
+        fun <- function(t,...){
+            return(t^(pars[1]-1)*cbind(pars[2]*(1+pars[1]*log(t)),pars[1])) # in this case alpha=pars[1], lambda=pars[2]
+        }
+        return(fun)
         
-        alpha <- exp(omega[1])
-        lambda <- exp(omega[2])
-    
-        n <- nrow(X)
-        Xbeta <- X%*%beta
-        sigma <- matrix(getcov(u=u,sigma=exp(eta[1]),phi=exp(eta[2]),model=covmodel$model,pars=covmodel$pars),n,n)
-        cholsigma <- t(chol(sigma))
-        priorcontrib <- -(1/2)*sum(gamma^2) + do.call(priors$call,args=list(beta=beta,omega=omega,eta=eta,priors=priors))
-        Y <- -eta[1]^2/2 + cholsigma%*%gamma
-        stuff <- Xbeta + Y
-        expstuff <- exp(stuff)
-    
-        logpost <- sum(log(diag(cholsigmainv))) + sum(delta*(stuff + log(lambda) + log(alpha) + (alpha-1)*log(tm))-expstuff*lambda*tm^alpha) + priorcontrib # first term, sum(log(diag(cholsigmainv))), is the Jacobian
-    
-        return(logpost)
     }
-    ngrid <- 20
-    if(length(priors$etaprior$mean)==1){
-        xseq <- seq(priors$etaprior$mean-1.96*priors$etaprior$sd,priors$etaprior$mean+1.96*priors$etaprior$sd,length.out=ngrid)
-        yseq <- xseq
-    }
-    else{
-        xseq <- seq(priors$etaprior$mean[1]-1.96*priors$etaprior$sd[1],priors$etaprior$mean[1]+1.96*priors$etaprior$sd[1],length.out=ngrid)
-        yseq <- seq(priors$etaprior$mean[2]-1.96*priors$etaprior$sd[2],priors$etaprior$mean[2]+1.96*priors$etaprior$sd[2],length.out=ngrid)
-    }
-    qa <- quadapprox(logpost,xseq=xseq,yseq=yseq,tm=tm,delta=delta,X=X,beta=betahat,omega=omegahat,Y=Yhat,priors=priors,covmodel=covmodel,u=u)
-    matr <- 0.4*qa$curvature
-    etahat <- qa$max
     
-    # entry for eta in proposal covariance
-    sigma[(lenbeta+lenomega+1):(lenbeta+lenomega+leneta),(lenbeta+lenomega+1):(lenbeta+lenomega+leneta)] <- matr    
-    
-    #estimate of gamma
-    Sigma <- matrix(getcov(u=u,sigma=exp(etahat[1]),phi=exp(etahat[2]),model=covmodel$model,pars=covmodel$pars),n,n)
-    covinv <- solve(Sigma)
-    cholcovinv <- t(chol(covinv))
-    gammahat <- cholcovinv%*%(Yhat+exp(etahat[1])^2/2)  
-    
-    cholSigma <- t(chol(Sigma))    
-    #mu <- -sd(gammahat)^2/2
-    #Y <- mu + cholSigma%*%gammahat
-    
-    deriv <- do.call(priors$derivative,args=list(beta=betahat,omega=omegahat,eta=etahat,priors=priors))
-
-    N <- nrow(X)
-    d <- ncol(X)
-    
-    alphahat <- exp(omegahat[1])
-    lambdahat <- exp(omegahat[2])
-    
-    alphaJacobian <- alphahat
-    alpha2Jacobian <- alphahat
-    
-    lambdaJacobian <- lambdahat
-    lambda2Jacobian <- lambdahat    
-    
-    Xbetahat <- X%*%betahat
-    thing <- exp(Xbetahat + Yhat)
-    
-    # beta and omega
-    for(k in 1:lenbeta){
-        for(l in 1:lenbeta){
-            sigma[k,l] <- sum(-X[,k]*X[,l]*thing*lambdahat*tm^alphahat) + as.numeric(k==l)*deriv$deriv2[k]
+    flist$hessbasehazard <- function(pars){
+        funfun <- function(t,pars){
+            m <- matrix(0,2,2) # note m[2,2]=0 i.e. d2h_0/dlambda^2 = 0
+            m[1,2] <- m[2,1] <- t^(pars[1]-1)*(1+pars[1]*log(t))
+            m[1,1] <- pars[2]*t^(pars[1]-1)*log(t)*(2+pars[1]*log(t))
+            return(m) # in this case alpha=pars[1], lambda=pars[2]
         }
-        sigma[k,d+1] <- sigma[d+1,k] <- alphaJacobian * sum(-X[,k]*thing*lambdahat*log(tm)*tm^alphahat)
-        sigma[k,d+2] <- sigma[d+2,k] <- lambdaJacobian * sum(-X[,k]*thing*tm^alphahat) 
-    }
-    sigma[lenbeta+1,lenbeta+2] <- sigma[lenbeta+2,lenbeta+1] <- alphaJacobian * lambdaJacobian * sum(-thing*log(tm)*tm^alphahat)
-    sigma[lenbeta+1,lenbeta+1] <- alphaJacobian^2*sum(-delta/(alphahat^2)-thing*lambdahat*(log(tm))^2*tm^alphahat) + alpha2Jacobian*sum(delta*(1/alphahat+log(tm))-thing*lambdahat*log(tm)*tm^alphahat)
-    sigma[lenbeta+2,lenbeta+2] <- lambdaJacobian^2 * sum(-delta/lambdahat^2) + lambda2Jacobian*sum(delta/lambdahat-thing*tm^alphahat)  
-    
-    # gamma
-    diag(sigma)[(lenbeta+lenomega+leneta+1):npars] <- -sum(diag(cholSigma^2)*(thing*lambdahat*tm^alphahat)) - 1 # -1 comes from prior 
-    
-    return(list(etahat=etahat,gammahat=gammahat,sigma=solve(-sigma))) 
-}
-
-
-
-##' estimateY.weibull function
-##'
-##' A function to estimate Y assuming a parametric proportional hazards model with baseline hazard derived from the Weibull distribution.
-##'
-##' @param X the design matrix
-##' @param betahat an estimate of beta
-##' @param omegahat an estimate of omega
-##' @param tm vector of observed times
-##' @param delta censoring indicator
-##' @param u vecor of distances bettween points
-##' @param covmodel an object of class 'covmodel', see ?covmodel 
-##' @return an estimate of the latent Gaussian field
-##' @export
-
-estimateY.weibull <- function(X,betahat,omegahat,tm,delta,u,covmodel){
-
-    alpha <- exp(omegahat[1])
-    lambda <- exp(omegahat[2])
-    
-    tsubs <- tm
-    for(i in 1:length(tsubs)){
-        if(delta[i]==0){
-            tpot <- tsubs[tsubs>tsubs[i]] # potential t
-            if(length(tpot)==0){
-                next # leave tsubs[i] alone 
-            }
-            else{
-                tsubs[i] <- sample(tpot,1) # sample from empirical distribution (ignoring covariates)
-            }
+        
+        fun <- function(t,...){
+            return(lapply(t,funfun,pars=pars))
         }
+        return(fun)
+        
     }
     
-    Y <- -X%*%betahat - log(lambda) - alpha*log(tsubs) # greedy estimate of Y (maximise individual contributions to log-likelihood) ... note log(delta) is now omitted  
+    flist$cumbasehazard <- function(pars){
+        fun <- function(t,...){
+            return(pars[2]*t^(pars[1])) # in this case alpha=pars[1], lambda=pars[2]
+        }
+        return(fun) 
+    }
+    
+    flist$gradcumbasehazard <- function(pars){
+        fun <- function(t,...){
+            return(t^(pars[1])*cbind(pars[2]*log(t),1)) # in this case alpha=pars[1], lambda=pars[2]
+        }
+        return(fun)    
+    }
+    
+    flist$hesscumbasehazard <- function(pars){
+        funfun <- function(t,pars){
+            m <- matrix(0,2,2) # note m[2,2]=0 i.e. d2H_0/dlambda^2 = 0
+            other <- log(t)*t^pars[1]
+            m[1,2] <- m[2,1] <- other 
+            m[1,1] <- pars[2]*other*log(t)
+            return(m) # in this case alpha=pars[1], lambda=pars[2]
+        }
+        
+        fun <- function(t,...){
+            return(lapply(t,funfun,pars=pars))
+        }
+        return(fun)
+    }
+    
+    flist$densityquantile <- function(pars,other){
+        fun <- function(probs,...){
+            return((-log(1-probs)/(pars[2]*other$expXbetaplusY))^(1/pars[1]))
+        }
+        return(fun)    
+    }
 
-    return(Y)    
+
+    class(flist) <- c("basehazardspec","list")
+    return(flist)
 }
